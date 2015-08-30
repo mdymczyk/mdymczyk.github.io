@@ -50,6 +50,9 @@
           <a name="topofpage"></a>
           {{content}}
         </section>
+
+        {% include comments.html %}
+
         <footer class="post-footer">
           <section class="share">
             {% for social in site.social %}
