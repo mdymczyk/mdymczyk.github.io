@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+  <head>
+  <meta charset="utf-8">
+  <!-- (1) Optimize for mobile versions: http://goo.gl/EOpFl -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- (1) force latest IE rendering engine: bit.ly/1c8EiC9 -->
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
+  <title>Let's go reactive... In Scala!</title>
+  <meta name="description" content="Coding, Japan and general rants from Toyko...
+" />
+
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="MobileOptimized" content="320" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+  <link rel="canonical" href="http://www.puroguramingu.com/2013/11/10/lets-go-reactive-in-scala.html">
+
+  <link rel="shortcut icon" href="/assets/images/favicon.ico">
+<!--  <link rel="stylesheet" href=""> -->
+  <link rel="stylesheet" href="http://brick.a.ssl.fastly.net/Linux+Libertine:400,400i,700,700i/Open+Sans:400,400i,700,700i">
+  <link href="//maxcdn.bootstrapcdn.com/font-awesome/4.2.0/css/font-awesome.min.css" rel="stylesheet">
+
+  <link rel="stylesheet" type="text/css" media="screen" href="/css/main.css" />
+  <link rel="stylesheet" type="text/css" media="print" href="/css/print.css" />
+</head>
+
+  <body itemscope itemtype="http://schema.org/Article">
+    <!-- header start -->
+
+<a href="http://www.puroguramingu.com" class="logo-readium"><span class="logo" style="background-image: url(/assets/images/logo.png)"></span></a>
+
+<!-- header end -->
+
+    <main class="content" role="main">
+      <article class="post">
+        
+        <div class="noarticleimage">
+          <div class="post-meta">
+            <h1 class="post-title">Let's go reactive... In Scala!</h1>
+            <div class="cf post-meta-text">
+              <div class="author-image" style="background-image: url(/assets/images/author.jpg)">Blog Logo</div>
+              <h4 class="author-name" itemprop="author" itemscope itemtype="http://schema.org/Person">Mateusz</h4>
+              on
+              <time datetime="2013-11-10T07:25:00-08:00">10 Nov 2013</time>
+              <!-- , tagged on <span class="post-tag-">, <a href="/tag/"></a></span> -->
+            </div>
+          </div>
+        </div>
+        <br>
+        <br>
+        <br>
+        
+        <section class="post-content">
+          <div class="post-reading">
+            <span class="post-reading-time"></span> read
+          </div>
+          <a name="topofpage"></a>
+          <p>Today's entry will be rather short and more of an advert than anything else! I really wanted to write this last week but oh well life happens.</p> <p>I'm pretty sure most of you are already well aware of what <a href="http://en.wikipedia.org/wiki/Massive_open_online_course">MOOCs</a> are and that <a href="https://www.coursera.org/">Coursera</a> is one of the most popular examples (and if you're not go and check it out, it's really worth it!).</p> <p>Last week a great course on <a href="https://class.coursera.org/progfun-003/class">Functional Programming in Scala</a>, done by <b>the</b> Martin Odersky, was concluded. If you are looking for an easy way to get dirty with FP and/or Scala I think that's the way to go. You can still check the course/do the assignments even after it's closed!</p> <p>But there's also good news! Last Monday a new course launched <a href="https://class.coursera.org/reactive-001/class">Principles of Reactive Programming.</a> I think we can safely say that this is a continuation of the previous course. Why should you care? Well let's start with the crew:</p> <ul><li>Martin Odersky - the creator of Scala and a huge contributor to the Java language,</li><li>Erik Meijer - a person who requires no introduction in FP circles, he also create the Reactive programming framework for .Net while working at MS</li><li>Roland Kuhn - leader of the Akka project</li></ul> <p>Hard to ask for a better line-up! But ok, <i>what is</i> this reactive programming? It all started with <a href="http://www.reactivemanifesto.org/">the reactive manifesto.</a> Basically the whole thing tries to address all the problems that are all the rage currently in the industry: handling a lot of data, being always up and running etc. The main points from the manifesto are:</p> <ul><li>being <b>event-driven</b> - this is the main building block which results in a lot of other good things mentioned below. This might sound scary but basically means that we are waiting for something to happen and <b>react</b> to it when it occurs (for instance you send a message from one server to the other). <li>scalability - who isn't scalable today? When you're not scalable then you're not cool! Reactive programming is supposed to give you the possibility to scale out both horizontally <b>and</b> vertically since everything has to be very loosely couples and interact with each other only via events. Since FP and RP doesn't encourage having state then thanks to the event driven architecture adding X more services of the same type is a (in theory) trivial task!.</li><li>resilience - since everything is very loosely coupled it, again in theory, shouldn't be a problem if one part of the system fails.</li><li>responsiveness - and we don't mean that your website will look good on your tablet, PC and mobile phone! Again since the whole system is loosely coupled it shouldn't be hard to make it so the user doesn't wait for all the data on the server side to be loaded/computed for hours.</li></ul> <p>This is a <b>very</b> basic summary of the whole manifesto so I do encourage you to go and read the whole thing! But as you can see the main point here is to change the way you think about architecting your system. It tells you that scalability, failures etc. are not an exception and something that can be quick fixed <b>after</b> you coded the whole but you should take all of it into considering during your design phase!</p> <p>The course will be divided into three parts:</p> <ol><li>Functional programming - covered by prof. Odersky will be a (very) short review of Scala and FP in general</li><li>Futures and reactive programming - Erik Meijer</li><li>Actors and distributed actors - Roland Kuhn</li></ol> <p>As a prerequisite you should know some Scala, you can check the list of lectures that were given during the FP/Scala course to get a good view what you should know, but I think that having some background in any FP language will be enough. As I said this course already started last week (on Monday) but it's not too late to start now! Will it be worth it? Hard to say since this is the first edition but I will definitely post a write-up after it finishes in December (or somewhere along the way should anything interesting appear!).</p>
+        </section>
+        <footer class="post-footer">
+          <section class="share">
+            
+              
+                <a class="icon-twitter" href="http://twitter.com/share?text=Let%27s+go+reactive...+In+Scala%21&amp;url=http://www.puroguramingu.com/2013/11/10/lets-go-reactive-in-scala"
+                  onclick="window.open(this.href, 'twitter-share', 'width=550,height=255');return false;">
+                <i class="fa fa-twitter"></i><span class="hidden">twitter</span>
+                </a>
+              
+            
+              
+            
+          </section>
+        </footer>
+        <div class="bottom-teaser cf">
+          <div class="isLeft">
+            <h5 class="index-headline featured"><span>Written by</span></h5>
+            <section class="author">
+              <div class="author-image" style="background-image: url(/assets/images/author.jpg)">Blog Logo</div>
+              <h4>Mateusz Dymczyk</h4>
+              <p class="bio"></p>
+              <hr>
+              <p class="published">Published <time datetime="2013-11-10 07:25">10 Nov 2013</time></p>
+            </section>
+          </div>
+          
+          <div class="isRight">
+            <h5 class="index-headline featured"><span>Supported by</span></h5>
+            <footer class="site-footer">
+              <section class="poweredby">Proudly published with <a href="http://jekyllrb.com"> Jekyll</a></section>
+              <a class="subscribe" href="/feed.xml"> <span class="tooltip"> <i class="fa fa-rss"></i> You should subscribe to my feed.</span></a>
+              <div class="inner">
+                <section class="copyright">All content copyright <a href="/">Mateusz Dymczyk</a> &copy; 2015<br>All rights reserved.</section>
+              </div>
+            </footer>
+          </div>
+        </div>
+      </article>
+    </main>
+    <div class="bottom-closer">
+      <div class="background-closer-image"  style="background-image: url(/assets/images/cover.jpg)">
+        Image
+      </div>
+      <div class="inner">
+        <h1 class="blog-title">Rants about programming...</h1>
+        <h2 class="blog-description">Coding, Japan and general rants from Toyko...
+</h2>
+        <a href="/" class="btn">Back to Overview</a>
+      </div>
+    </div>
+    <script src="https://code.jquery.com/jquery-1.11.1.min.js"></script>
+<script type="text/javascript" src="/assets/js/jquery.fitvids.js"></script>
+<script type="text/javascript" src="/assets/js/index.js"></script>
+<script type="text/javascript" src="/assets/js/readingTime.min.js"></script>
+<script>
+(function ($) {
+  "use strict";
+  $(document).ready(function(){
+
+    var $window = $(window),
+    $image = $('.post-image-image, .teaserimage-image');
+    
+      $window.on('scroll', function() {
+        var top = $window.scrollTop();
+
+        if (top < 0 || top > 1500) { return; }
+        $image
+          .css('transform', 'translate3d(0px, '+top/3+'px, 0px)')
+          .css('opacity', 1-Math.max(top/700, 0));
+      });
+      $window.trigger('scroll');
+
+      var height = $('.article-image').height();
+      $('.post-content').css('padding-top', height + 'px');
+
+      $('a[href*=#]:not([href=#])').click(function() {
+        if (location.pathname.replace(/^\//,'') == this.pathname.replace(/^\//,'')
+         && location.hostname == this.hostname) {
+          var target = $(this.hash);
+          target = target.length ? target : $('[name=' + this.hash.slice(1) +']');
+          if (target.length) {
+            $('html,body').animate({ scrollTop: target.offset().top }, 500);
+            return false;
+          }
+        }
+      });
+
+  });
+}(jQuery));
+</script>
+
+
+  </body>
+</html>

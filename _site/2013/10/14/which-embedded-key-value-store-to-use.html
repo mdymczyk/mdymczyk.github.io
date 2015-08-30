@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+  <head>
+  <meta charset="utf-8">
+  <!-- (1) Optimize for mobile versions: http://goo.gl/EOpFl -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- (1) force latest IE rendering engine: bit.ly/1c8EiC9 -->
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
+  <title>Which embedded key-value store to use? Or the curse of too much choice...</title>
+  <meta name="description" content="Coding, Japan and general rants from Toyko...
+" />
+
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="MobileOptimized" content="320" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+  <link rel="canonical" href="http://www.puroguramingu.com/2013/10/14/which-embedded-key-value-store-to-use.html">
+
+  <link rel="shortcut icon" href="/assets/images/favicon.ico">
+<!--  <link rel="stylesheet" href=""> -->
+  <link rel="stylesheet" href="http://brick.a.ssl.fastly.net/Linux+Libertine:400,400i,700,700i/Open+Sans:400,400i,700,700i">
+  <link href="//maxcdn.bootstrapcdn.com/font-awesome/4.2.0/css/font-awesome.min.css" rel="stylesheet">
+
+  <link rel="stylesheet" type="text/css" media="screen" href="/css/main.css" />
+  <link rel="stylesheet" type="text/css" media="print" href="/css/print.css" />
+</head>
+
+  <body itemscope itemtype="http://schema.org/Article">
+    <!-- header start -->
+
+<a href="http://www.puroguramingu.com" class="logo-readium"><span class="logo" style="background-image: url(/assets/images/logo.png)"></span></a>
+
+<!-- header end -->
+
+    <main class="content" role="main">
+      <article class="post">
+        
+        <div class="noarticleimage">
+          <div class="post-meta">
+            <h1 class="post-title">Which embedded key-value store to use? Or the curse of too much choice...</h1>
+            <div class="cf post-meta-text">
+              <div class="author-image" style="background-image: url(/assets/images/author.jpg)">Blog Logo</div>
+              <h4 class="author-name" itemprop="author" itemscope itemtype="http://schema.org/Person">Mateusz</h4>
+              on
+              <time datetime="2013-10-14T06:15:00-07:00">14 Oct 2013</time>
+              <!-- , tagged on <span class="post-tag-">, <a href="/tag/"></a></span> -->
+            </div>
+          </div>
+        </div>
+        <br>
+        <br>
+        <br>
+        
+        <section class="post-content">
+          <div class="post-reading">
+            <span class="post-reading-time"></span> read
+          </div>
+          <a name="topofpage"></a>
+          <p>One of my first tasks at my new job (which I just started) was to create a service exposing a key-value store for storing BLOBs. The natural question was should I use our current database (H2) or something else.</p>The requirements were simple: <ol><li><b>embeddable</b> Java solution (as we are making packaged software and don't really need the extra problems related to setting up a DB running in a separate process)</li><li><b>license</b> allowing us to use it in a commercial product (something along the lines of Apache License 2.0)</li><li><b>not in-memory</b> (sounded simply wrong for BLOBs)</li><li><b>scalable</b> (both horizontally and vertically)</li><li><b>simple</b> to set-up, use and well documented</li></ol><p>Simple, right? Well the problem with simple problems is that there are too many ways to solve them. If you google for a "key value store" the number of possibilities will crush you. Numbers 1, 2 and 3 from the above list made the choice much easier (MongoDB, CouchDB, Hazelcast, Memchached, Riak, Redis, Berkeley DB, Neo4J etc. all failed at at least one of them) but still I was left with:</p><ul><li>H2</li><li>Voldemort</li><li>OrientDB</li><li>Cassandra</li></ul><p>And <b>many</b> others which I flat out rejected on a gut feeling (sorry, I won't be able to go to a customer and tell him we're using <a href="http://people.apache.org/~kalle/bananadb/">BananaDB</a>).</p> <p>If you're interested in some code or you'd like to see how the (very) basic configuration looks like I'm trying them out on my <a href="https://github.com/mdymczyk/DBTesting">GitHub repo</a> (although currently there's only very basic OrientDB setup commited). So how do the above compare?</p><h3><a href="http://www.orientdb.org/">OrientDB</a></h3><p>OrientDB is an interesting NoSQL DBMS which stores data as documents but also allows direct relations between them like in graph databases. It also can work as a <a href="https://github.com/orientechnologies/orientdb/wiki/Key-Value-engine">key-value engine!</a> The creators say it's secure, web ready (by which they mean native JSON REST over HTTP support) and scalable. They claim to support schema-less mode, schema-full or a mix of both, ACID transaction and some other goodies.</p>  <ul><li><b>What do you need to get started:</b><ul>  <li><a href="https://github.com/mdymczyk/DBTesting/blob/master/src/main/resources/orientdb/orientdb.config">orientdb.config</a></li>  <li>according to the doc: <b>orientdb-enterprise-*.jar</b> && <b>orientdb-server-*.jar</b> (in practice you better use a build tool like Maven or Gradle since there are quite a few dependencies)</li></ul></li><li><b>Ease of use:</b> starting the server, creating/opening a DB and saving your first records is <a href="https://github.com/mdymczyk/DBTesting/blob/master/src/main/java/com/dymczyk/orientdb/EmbeddedOrientDB.java">a matter of only few lines</a>. <li><b>Documentation:</b> sometimes lacking, at some points it's confusing whether it is still up-to-date or is it a page for an old version (mainly the google code docs). Overall passable.</li><li><b>Adoption:</b> weak. The DB has already 3 years (since the initial release) but I failed to find a single well known company using it.</li><li><b>License:</b> Apache 2.0</li><li><b>Protocol:</b> HTTP and binary</li><li><b>Misc:</b><ul><li>it uses a new interesting MVRB-Tree indexing algorithm that allows to store multiple values in a single tree node (opposite to only 1 value per node in RB Trees) and thanks to which both inserts and lookups are supposed to be fast </li><li>requires the new network node to have <b>identical db</b> before adding it to the network. I don't really see how this plays with the "scalable" part of OrientDB.</li></ul></li><li><b>When to use:</b> the basic case would be a very simple KV store. OrientDB fits here nicely as the MVRB indexing will make it fast. As a graph db on the other hand it goes well with any sort of data that is connected using complex relations (social networks anyone? but also applications handling geographical or routing data).</li></ul> <h3><a href="http://www.h2database.com/html/main.html">H2</a></h3><p>Contrary to the other options I am considering here H2 is the only RDBMS. Frankly speaking the only reason I put it up here is because we already are using a H2 DB in our software and it might just turn out good enough. H2 seems like a fairly standard RDBMS which can be embedded in Java application. It supports a subset of SQL, mainly relies on it and JDBC, can be used both as in-memory and disk-based </p>  <ul><li><b>What do you need to get started:</b><ul>  <li>h2*.jar - then simply launch the server in 1 line of code and get a JDBC Data Source.</li></ul></li><li><b>Ease of use:</b> installation is one jar, starting up the whole thing is few lines of code. Rest is plain old JDBC or you can use an ORM, what can be easier?</li><li><b>Documentation:</b> well written and maintained</li><li><b>Adoption:</b> well it's no Cassandra but the <a href="http://www.h2database.com/html/links.html">list of projects</a> using it still looks well</li><li><b>License:</b> dual licensed under the MPL 1.1 (Mozilla Public License) or the (unmodified) EPL 1.0</li><li><b>Protocol:</b> PostgreSQL server side network protocol</li><li><b>Misc:</b><ul><li>this is still a RDBMS which means it has to be (or at least should be in theory) slower than the NoSQL solutions due to join and ACID support (though Orient DB also is supposed to have that one)</li><li>it seems to support only a very basic HA model</li></ul></li><li><b>When to use:</b> when you need a mature, fast DB that supports all the RDBMs goodness (mainly ACID, joins and normalization) and you don't necessarily need to handle very large amounts of unstructured data (and no, by very large I don't mean 1GB...)</li></ul><br> <h3><a href="">Cassandra</a></h3><p>Cassandra is a "BigTable meets Dynamo" Java database initially created at Facebook. By that I mean it has a Dynamo-like architecture and BigTable-like data model (columns and column families). It's main goals are high (linear) scalability across a large network (spanning over multiple data centres) of commodity devices. It provides a masterless architecture which also supports asynchronous replication of data. If you're looking for joins or subqueries you better keep on searching! Unless you're using batch Hadoop analysis.</p>  <ul><li><b>What do you need to get started:</b><ul>  <li><a href="http://cassandra.apache.org/">sources</a> and a cassandra.yaml config file</li></ul></li><li><b>Ease of use:</b> here it's actually a bit more tricky than OrientDB. Setting up the CassandraDaemon and cleaning up after it seems a bit more complicated but there seem to already be <a href="https://github.com/hector-client/hector/blob/master/test/src/main/java/me/prettyprint/hector/testutils/EmbeddedServerHelper.java">open source helpers doing that for you</a>.</li><li><b>Documentation:</b> looking good, detailed and well maintained. Even if the documentation is not enough, there's plenty of information online about Cassandra because of all the hype it generated in the past few years.</li><li><b>Adoption:</b> the list of companies using Cassandra seems to just go on and on.</li><li><b>License:</b> Apache 2.0</li><li><b>Protocol:</b> Thrift and binary CQL3</li><li><b>Misc:</b><ul><li>writes faster than reads</li><li>easy to set the tradeoff between distribution and replication</li><li>great replication capabilities</li></ul></li><li><b>When to use:</b> since writes are here faster than reads it seems great for things like log storing applications or any other case of data analysis.</li></ul><br><h3><a href="http://www.project-voldemort.com/">Voldemort</a></h3><p>Voldemort is an open source implementation of Amazon's <a href="http://en.wikipedia.org/wiki/Dynamo_(storage_system)">DynamoDB</a> developed by the guys at LinkedIn (apparently one of the contributors actually worked on Dynamo) with scalability and high performance in mind. Apparently it gives linear scalability and one of the lowest latencies. To tell you the truth I was really looking forward to this solution and was a bit biased towards it but... <br><br>It seems the guys at LinkedIn don't like to couple their projects with Maven and they don't think that deploying their ant projects to a maven repository is a high priority. For most people it might not be a problem, for me it meant that, for now, it's a no-go. </p>  <ul><li><b>What do you need to get started:</b><ul>  <li><a href="http://www.project-voldemort.com/voldemort/quickstart.html">3 config files and the jar file</a></li></ul></li><li><b>Ease of use:</b> if it wasn't for the "we don't like Maven enough to care about it" policy the whole user experience would be a breeze.</li><li><b>Documentation:</b> although it looks smaller than Orient's in fact it seems to have everything you need to get started. Also it seems to be well maintained so you shouldn't be confused what's outdated and what's not.</li><li><b>Adoption:</b> LinkedIn and... LinkedIn?</li><li><b>License:</b> Apache 2.0</li><li><b>Protocol:</b> HTTP and bare TCP/IP</li><li><b>Misc:</b><ul><li>linear scalability</li><li>great latency</li></ul></li><li><b>When to use:</b> with it's replication system and the fact that each node is equal it seems like a great candidate for systems which can be at times under heavy usage by the users and where losing data wouldn't be favourable but when we can wait a bit for eventual consistency to kick-in. How about a shopping cart at a large store? </li></ul><br><br><h3>Conclusions?</h3><p>For the time being (until Voldemort gets a Maven artifact or we decide to migrate all our data to a NoSQL database in which case Cassandra would be a good fit) I will try to convince my team to use OrientDB:  <ul><li>easy to set up. Contrary to Cassandra and Voldemort (lack of maven artifact).</li>  <li>distributed architecture with HA out of the box (or at least that's what they say)</li><li>fast (thanks to the MVRB Tree algorithm)</li></ul></p>
+        </section>
+        <footer class="post-footer">
+          <section class="share">
+            
+              
+                <a class="icon-twitter" href="http://twitter.com/share?text=Which+embedded+key-value+store+to+use%3F+Or+the+curse+of+too+much+choice...&amp;url=http://www.puroguramingu.com/2013/10/14/which-embedded-key-value-store-to-use"
+                  onclick="window.open(this.href, 'twitter-share', 'width=550,height=255');return false;">
+                <i class="fa fa-twitter"></i><span class="hidden">twitter</span>
+                </a>
+              
+            
+              
+            
+          </section>
+        </footer>
+        <div class="bottom-teaser cf">
+          <div class="isLeft">
+            <h5 class="index-headline featured"><span>Written by</span></h5>
+            <section class="author">
+              <div class="author-image" style="background-image: url(/assets/images/author.jpg)">Blog Logo</div>
+              <h4>Mateusz Dymczyk</h4>
+              <p class="bio"></p>
+              <hr>
+              <p class="published">Published <time datetime="2013-10-14 06:15">14 Oct 2013</time></p>
+            </section>
+          </div>
+          
+          <div class="isRight">
+            <h5 class="index-headline featured"><span>Supported by</span></h5>
+            <footer class="site-footer">
+              <section class="poweredby">Proudly published with <a href="http://jekyllrb.com"> Jekyll</a></section>
+              <a class="subscribe" href="/feed.xml"> <span class="tooltip"> <i class="fa fa-rss"></i> You should subscribe to my feed.</span></a>
+              <div class="inner">
+                <section class="copyright">All content copyright <a href="/">Mateusz Dymczyk</a> &copy; 2015<br>All rights reserved.</section>
+              </div>
+            </footer>
+          </div>
+        </div>
+      </article>
+    </main>
+    <div class="bottom-closer">
+      <div class="background-closer-image"  style="background-image: url(/assets/images/cover.jpg)">
+        Image
+      </div>
+      <div class="inner">
+        <h1 class="blog-title">Rants about programming...</h1>
+        <h2 class="blog-description">Coding, Japan and general rants from Toyko...
+</h2>
+        <a href="/" class="btn">Back to Overview</a>
+      </div>
+    </div>
+    <script src="https://code.jquery.com/jquery-1.11.1.min.js"></script>
+<script type="text/javascript" src="/assets/js/jquery.fitvids.js"></script>
+<script type="text/javascript" src="/assets/js/index.js"></script>
+<script type="text/javascript" src="/assets/js/readingTime.min.js"></script>
+<script>
+(function ($) {
+  "use strict";
+  $(document).ready(function(){
+
+    var $window = $(window),
+    $image = $('.post-image-image, .teaserimage-image');
+    
+      $window.on('scroll', function() {
+        var top = $window.scrollTop();
+
+        if (top < 0 || top > 1500) { return; }
+        $image
+          .css('transform', 'translate3d(0px, '+top/3+'px, 0px)')
+          .css('opacity', 1-Math.max(top/700, 0));
+      });
+      $window.trigger('scroll');
+
+      var height = $('.article-image').height();
+      $('.post-content').css('padding-top', height + 'px');
+
+      $('a[href*=#]:not([href=#])').click(function() {
+        if (location.pathname.replace(/^\//,'') == this.pathname.replace(/^\//,'')
+         && location.hostname == this.hostname) {
+          var target = $(this.hash);
+          target = target.length ? target : $('[name=' + this.hash.slice(1) +']');
+          if (target.length) {
+            $('html,body').animate({ scrollTop: target.offset().top }, 500);
+            return false;
+          }
+        }
+      });
+
+  });
+}(jQuery));
+</script>
+
+
+  </body>
+</html>
