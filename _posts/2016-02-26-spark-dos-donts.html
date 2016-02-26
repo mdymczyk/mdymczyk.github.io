@@ -1,0 +1,141 @@
+---
+layout: post
+title: Spark DOs, DONTs
+author: Mateusz
+---
+
+<p>
+Finally after using <a href="http://spark.apache.org/">Apache Spark</a> internally in standalone mode
+we had a reason to deploy in on <a hreaf="https://aws.amazon.com/elasticmapreduce/">Amazon's EMR</a> to do some funky machine learning with <a href="http://spark.apache.org/docs/latest/mllib-guide.html">MLlib</a>!
+</p>
+<p>
+This brought a lot of pain, swearing and tears but ended up with a cheerful "HELL YEAH!". Here's a semi-random list
+of things I wish I'd known before I started. Some are Spark related, some will concern only Scala users and some are just
+general tips.
+</p>
+
+<h3>1. DON'T use the App trait!</h3>
+
+<p>This isn't really a Spark problem but can result in <b>NullPointerExceptions</b> as discussed <a href="https://issues.apache.org/jira/browse/SPARK-4170">in this issue</a> and believe me, it's not easy to debug/figure out what's happening.
+The problem lies in late initialisation of variables, in the example below <b>str1</b> will be a <b>null</b> on workers! But will work well on the driver...
+Even simple apps like the one in the issue report will have problems:</p>
+<pre class="brush: scala">
+object DemoBug extends App {
+    val conf = new SparkConf()
+    val sc = new SparkContext(conf)
+
+    val rdd = sc.parallelize(List("A","B","C","D"))
+    val str1 = "A"
+
+    val rslt = rdd.filter(x => { str1 != null && x != "A" }).count
+    
+    println(s"DemoBug: rslt = $rslt")
+}
+</pre>
+
+<p>Will produce:</p>
+
+<pre class="brush: scala">
+DemoBug: rslt = 0
+</pre>
+
+<p>Instead use: <pre class="brush: scala">def main(args:Array[String])</pre></p>
+
+<h3>2. DO use a lot of logging.</h3>
+<p>Logging in moderation is always a good thing and might sound pretty obvious, but... With Spark, and well Hadoop in general, it's a vital part of your app.
+Debugging Spark jobs in production is ridiculously hard and well placed logging messages might save you from a redeploy, which might takes minutes or even hours.
+Remember, though, that many loggers are not Serializable so you might need to use one of the tricks I wrote about here.</p>
+
+<h3>3a. DO pay attention to serialization.</h3>
+
+<p>Spark sends a lot of objects over the wire, that's why plenty of your classes will have to implement the <a href="https://docs.oracle.com/javase/8/docs/api/java/io/Serializable.html">Serializable</a> interface. For this reason this will fail:</p>
+
+<pre class="brush: scala">
+class NotSerializablePrinter { def print(msg:String) = println(msg) }
+
+val printer = new NotSerializablePrinter
+val rdd = sc.parallelize(Array("1","2","3"))
+rdd.foreach(msg => printer.print(msg))
+</pre>
+
+<p>You'll get a beautiful <b>java.io.NotSerializableException: $iwC$$iwC$NotSerializableClass</b>. That's because everything inside the RDD object methods is sent to workers to be carried out and has to transfered over the wire. Since the printer class isn't it cannot be sent from the driver node to the workers.</p>
+
+<p>Whenever you see this exception you have a few options:</p>
+
+<ol>
+<li>The easiest is to make the class serializable by <b>class NotSerializablePrinter extends Serializable</b>. Do remember that all the member variables also have to be serializable, though!</li>
+<li>Sometimes you cannot modify the code, in that case you can create the object on the worker nodes in the closure itself, the below code works as no objects are sent over the wire:</li>
+<pre class="brush: scala">
+rdd.foreach(msg => new NotSerializablePrinter.print(msg))
+</pre>
+<li>The problem above is that you create a new object with each iteration. To work around this you can create a singleton object on each worker, in Java that would require making a <b>static</b> variable. In Scala this should work:</li>
+<pre class="brush: scala">
+object printer {
+  val instance = new NotSerializablePrinter
+}
+rdd.foreach(msg => printer.instance.print(msg))
+</pre>
+</ol>
+
+<h3>3b. DO use non-default serializers.</h3>
+<p>
+Java serialization, which is the default serialization method in Spark, isn't the fastest, don't think we need to discuss it. But if you still don't believe me, here: <img src="http://chart.apis.google.com/chart?chtt=totalTime&chf=c%7C%7Clg%7C%7C0%7C%7CFFFFFF%7C%7C1%7C%7C76A4FB%7C%7C0%7Cbg%7C%7Cs%7C%7CEFEFEF&chs=689x430&chd=t:1263.0,1552.0,1747.0,1878.0,1966.5,2119.0,2203.0,2559.5,2706.0,2963.0,3585.5,3912.5,4182.5,4186.5,5948.5,7337.5,9050.5,10078.0,12404.0,12931.0,18031.0,28068.5&chds=0,30875.350000000002&chxt=y&chxl=0:%7Cjava%7Cjson/jackson-databind%7CJsonMarshaller%7Cxstream%20%28stax%20with%20conv%29%7Cbinaryxml/FI%7Chessian%7Cjavolution%20xmlformat%7Cstax/woodstox%7Cprotostuff-json%7Cstax/aalto%7Cprotostuff-numeric-json%7Cjson%20%28jackson%29%7Cthrift%7Cavro-generic%7Csbinary%7Cavro-specific%7Cactivemq%20protobuf%7Cprotobuf%7Ckryo%7Ckryo-optimized%7CMessagePack%20%28buggy%29%7Cjava%20%28externalizable%29&chm=N%20*f*,000000,0,-1,10&lklk&chdlp=t&chco=660000%7C660033%7C660066%7C660099%7C6600CC%7C6600FF%7C663300%7C663333%7C663366%7C663399%7C6633CC%7C6633FF%7C666600%7C666633%7C666666&cht=bhg&chbh=10&nonsense=aaa.png"/>
+</p>
+<p>
+Fortunately you can very easily switch from native Java serialization to <a href="https://github.com/EsotericSoftware/kryo">Kryo</a> by setting in <b>SparkConf</b> the property <b>"spark.serializer"</b> to <b>"org.apache.spark.serializer.KryoSerializer"</b>.
+This will be used both during <b>shuffles</b> between worker nodes and during serialization <b>to disk</b>.
+</p>
+
+<p>
+Kryo does require some more configuration and has some limitations, go check out the <a href="https://spark.apache.org/docs/latest/tuning.html#data-serialization">spark documentation</a> to know what you need to exactly do. Actually read that whole part of the doc right now!
+</p>
+
+<h3>4. DON'T use different modes/schedulers/data for testing and prod!</h3>
+<p>The thought of using standalone scheduler+client mode for tests and YARN/Mesos+cluster mode in prod sounds very tempting.
+Same goes for testing your Spark apps on smaller datasets than the ones in production. Do not give into that temptation as a false one, it is :-)
+There are scheduler specific bugs like <a href="https://issues.apache.org/jira/browse/SPARK-12494">this one</a> I encountered. Everything worked fine in local mode on a small dataset. A big dataset+Yarn = disaster. 
+
+<h3>5. DO cache/persist</h3>
+<p>
+Consider this piece of code:
+</p>
+<pre class="brush: scala">
+import org.apache.spark.mllib.clustering.{KMeans, KMeansModel}
+import org.apache.spark.mllib.linalg.Vectors
+
+// Declare and initialise the spark context
+
+// Load a HUGE dataset
+val data = sc.textFile("kmeans_data.txt")
+val parsedData = data.map(s => Vectors.dense(s.split(' ').map(_.toDouble)))
+
+val clusters = KMeans.train(parsedData, 4, 500)
+</pre>
+
+<p>All fine and dandy, right? Wrong! It's extremely important to read the docs of every method you use to see if it uses your RDD more than once! In the above case <b>parsedData</b> will be re-read from the file and the whole RDD will be recreated hundreds of time inside the <b>KMeans.train</b> method!</p>
+<p>While writing your algorithms and using third party libraries remember about <a href="https://spark.apache.org/docs/latest/api/java/org/apache/spark/rdd/RDD.html#persist(org.apache.spark.storage.StorageLevel)">persist(level)</a> and the shorthand version <a href="https://spark.apache.org/docs/latest/api/java/org/apache/spark/rdd/RDD.html#cache()">cache()</a>.</p>
+
+<p>The above methods store computed RDD either <b>in memory</b> (faster access) or <b>in memory and on disk</b> (more space but slower) in a <b>serialized</b> (less storage, more CPU intensive) or <b>non serialized</b> format so Spark will not recreate it every time the RDD is used. My advice is to, if possible, use the memory only storage level, you really don't want to hit the disk although that's not always an option.</p>
+
+<p>The above example can be quickly fixed by adding one line (or calling the method during the assignment) of code before the KMeans call:</p>
+<pre class="brush: scala">
+val parsedData = data.map(s => Vectors.dense(s.split(' ').map(_.toDouble)))
+parsedData.cache()
+</pre>
+
+<h3>6. BONUS1: AWS EMR mode....</h3>
+<p>It seems that AWS EMR only supports natively YARN scheduling and there's no (easy) way to use the spark standalone mode so if you, for some reason, need to use it better go with <a hreaf="http://spark.apache.org/docs/latest/ec2-scripts.html">spark ec2 scripts</a> and save yourselve a lot of trouble.
+
+<h3>7. BONUS2: ES HADOOP</h3>
+<p>
+<a hreaf="https://github.com/elastic/elasticsearch-hadoop">Elasticsearch Hadoop</a> is a very cool library which will allow you to read data from <a hreaf="https://www.elastic.co/">Elasticsearch</a> as a DataFrame or an RDD.
+Two pieces of advice here:
+<ol>
+<li>Remember that each field in ES is by default an array, even without any additional config? Well yes, it can be a singular value or an array straight out of the box! If you have arrays in your documents better use <b>es.read.field.as.array.include</b> option which is fully described in the <a hreaf="https://www.elastic.co/guide/en/elasticsearch/hadoop/master/configuration.html">documentation.</a> since ES-Hadoop might have a hard time figuring this out.</li>
+<li>Even though all the issues regarding <b>Position for 'FIELDNAME' not found in row; typically this is caused by a mapping inconsistency</b> regarding nested fields I have found in the tracker seem to be resolved I still had some problems when using DataFrames. If you encounter them consider using <b>EsSpark.esRDD</b> and going with an RDD instead...</li>
+</ol>
+</p>
+
+<p>
+That's it for now, not much but hope it will make people's life easier! Now is the time to make the whole thing actually fast so be on a look out for performance tuning tips!
+</p>
