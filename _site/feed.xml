@@ -6,9 +6,153 @@
 </description>
     <link>http://www.puroguramingu.com/</link>
     <atom:link href="http://www.puroguramingu.com/feed.xml" rel="self" type="application/rss+xml" />
-    <pubDate>Sun, 30 Aug 2015 14:03:33 +0900</pubDate>
-    <lastBuildDate>Sun, 30 Aug 2015 14:03:33 +0900</lastBuildDate>
+    <pubDate>Fri, 26 Feb 2016 20:40:15 +0900</pubDate>
+    <lastBuildDate>Fri, 26 Feb 2016 20:40:15 +0900</lastBuildDate>
     <generator>Jekyll v2.5.3</generator>
+    
+      <item>
+        <title>Spark DOs, DONTs</title>
+        <description>&lt;p&gt;
+Finally after using &lt;a href=&quot;http://spark.apache.org/&quot;&gt;Apache Spark&lt;/a&gt; internally in standalone mode
+we had a reason to deploy in on &lt;a hreaf=&quot;https://aws.amazon.com/elasticmapreduce/&quot;&gt;Amazon&#39;s EMR&lt;/a&gt; to do some funky machine learning with &lt;a href=&quot;http://spark.apache.org/docs/latest/mllib-guide.html&quot;&gt;MLlib&lt;/a&gt;!
+&lt;/p&gt;
+&lt;p&gt;
+This brought a lot of pain, swearing and tears but ended up with a cheerful &quot;HELL YEAH!&quot;. Here&#39;s a semi-random list
+of things I wish I&#39;d known before I started. Some are Spark related, some will concern only Scala users and some are just
+general tips.
+&lt;/p&gt;
+
+&lt;h3&gt;1. DON&#39;T use the App trait!&lt;/h3&gt;
+
+&lt;p&gt;This isn&#39;t really a Spark problem but can result in &lt;b&gt;NullPointerExceptions&lt;/b&gt; as discussed &lt;a href=&quot;https://issues.apache.org/jira/browse/SPARK-4170&quot;&gt;in this issue&lt;/a&gt; and believe me, it&#39;s not easy to debug/figure out what&#39;s happening.
+The problem lies in late initialisation of variables, in the example below &lt;b&gt;str1&lt;/b&gt; will be a &lt;b&gt;null&lt;/b&gt; on workers! But will work well on the driver...
+Even simple apps like the one in the issue report will have problems:&lt;/p&gt;
+&lt;pre class=&quot;brush: scala&quot;&gt;
+object DemoBug extends App {
+    val conf = new SparkConf()
+    val sc = new SparkContext(conf)
+
+    val rdd = sc.parallelize(List(&quot;A&quot;,&quot;B&quot;,&quot;C&quot;,&quot;D&quot;))
+    val str1 = &quot;A&quot;
+
+    val rslt = rdd.filter(x =&gt; { str1 != null &amp;&amp; x != &quot;A&quot; }).count
+    
+    println(s&quot;DemoBug: rslt = $rslt&quot;)
+}
+&lt;/pre&gt;
+
+&lt;p&gt;Will produce:&lt;/p&gt;
+
+&lt;pre class=&quot;brush: scala&quot;&gt;
+DemoBug: rslt = 0
+&lt;/pre&gt;
+
+&lt;p&gt;Instead use: &lt;pre class=&quot;brush: scala&quot;&gt;def main(args:Array[String])&lt;/pre&gt;&lt;/p&gt;
+
+&lt;h3&gt;2. DO use a lot of logging.&lt;/h3&gt;
+&lt;p&gt;Logging in moderation is always a good thing and might sound pretty obvious, but... With Spark, and well Hadoop in general, it&#39;s a vital part of your app.
+Debugging Spark jobs in production is ridiculously hard and well placed logging messages might save you from a redeploy, which might takes minutes or even hours.
+Remember, though, that many loggers are not Serializable so you might need to use one of the tricks I wrote about here.&lt;/p&gt;
+
+&lt;h3&gt;3a. DO pay attention to serialization.&lt;/h3&gt;
+
+&lt;p&gt;Spark sends a lot of objects over the wire, that&#39;s why plenty of your classes will have to implement the &lt;a href=&quot;https://docs.oracle.com/javase/8/docs/api/java/io/Serializable.html&quot;&gt;Serializable&lt;/a&gt; interface. For this reason this will fail:&lt;/p&gt;
+
+&lt;pre class=&quot;brush: scala&quot;&gt;
+class NotSerializablePrinter { def print(msg:String) = println(msg) }
+
+val printer = new NotSerializablePrinter
+val rdd = sc.parallelize(Array(&quot;1&quot;,&quot;2&quot;,&quot;3&quot;))
+rdd.foreach(msg =&gt; printer.print(msg))
+&lt;/pre&gt;
+
+&lt;p&gt;You&#39;ll get a beautiful &lt;b&gt;java.io.NotSerializableException: $iwC$$iwC$NotSerializableClass&lt;/b&gt;. That&#39;s because everything inside the RDD object methods is sent to workers to be carried out and has to transfered over the wire. Since the printer class isn&#39;t it cannot be sent from the driver node to the workers.&lt;/p&gt;
+
+&lt;p&gt;Whenever you see this exception you have a few options:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;The easiest is to make the class serializable by &lt;b&gt;class NotSerializablePrinter extends Serializable&lt;/b&gt;. Do remember that all the member variables also have to be serializable, though!&lt;/li&gt;
+&lt;li&gt;Sometimes you cannot modify the code, in that case you can create the object on the worker nodes in the closure itself, the below code works as no objects are sent over the wire:&lt;/li&gt;
+&lt;pre class=&quot;brush: scala&quot;&gt;
+rdd.foreach(msg =&gt; new NotSerializablePrinter.print(msg))
+&lt;/pre&gt;
+&lt;li&gt;The problem above is that you create a new object with each iteration. To work around this you can create a singleton object on each worker, in Java that would require making a &lt;b&gt;static&lt;/b&gt; variable. In Scala this should work:&lt;/li&gt;
+&lt;pre class=&quot;brush: scala&quot;&gt;
+object printer {
+  val instance = new NotSerializablePrinter
+}
+rdd.foreach(msg =&gt; printer.instance.print(msg))
+&lt;/pre&gt;
+&lt;/ol&gt;
+
+&lt;h3&gt;3b. DO use non-default serializers.&lt;/h3&gt;
+&lt;p&gt;
+Java serialization, which is the default serialization method in Spark, isn&#39;t the fastest, don&#39;t think we need to discuss it. But if you still don&#39;t believe me, here: &lt;img src=&quot;http://chart.apis.google.com/chart?chtt=totalTime&amp;chf=c%7C%7Clg%7C%7C0%7C%7CFFFFFF%7C%7C1%7C%7C76A4FB%7C%7C0%7Cbg%7C%7Cs%7C%7CEFEFEF&amp;chs=689x430&amp;chd=t:1263.0,1552.0,1747.0,1878.0,1966.5,2119.0,2203.0,2559.5,2706.0,2963.0,3585.5,3912.5,4182.5,4186.5,5948.5,7337.5,9050.5,10078.0,12404.0,12931.0,18031.0,28068.5&amp;chds=0,30875.350000000002&amp;chxt=y&amp;chxl=0:%7Cjava%7Cjson/jackson-databind%7CJsonMarshaller%7Cxstream%20%28stax%20with%20conv%29%7Cbinaryxml/FI%7Chessian%7Cjavolution%20xmlformat%7Cstax/woodstox%7Cprotostuff-json%7Cstax/aalto%7Cprotostuff-numeric-json%7Cjson%20%28jackson%29%7Cthrift%7Cavro-generic%7Csbinary%7Cavro-specific%7Cactivemq%20protobuf%7Cprotobuf%7Ckryo%7Ckryo-optimized%7CMessagePack%20%28buggy%29%7Cjava%20%28externalizable%29&amp;chm=N%20*f*,000000,0,-1,10&amp;lklk&amp;chdlp=t&amp;chco=660000%7C660033%7C660066%7C660099%7C6600CC%7C6600FF%7C663300%7C663333%7C663366%7C663399%7C6633CC%7C6633FF%7C666600%7C666633%7C666666&amp;cht=bhg&amp;chbh=10&amp;nonsense=aaa.png&quot;/&gt;
+&lt;/p&gt;
+&lt;p&gt;
+Fortunately you can very easily switch from native Java serialization to &lt;a href=&quot;https://github.com/EsotericSoftware/kryo&quot;&gt;Kryo&lt;/a&gt; by setting in &lt;b&gt;SparkConf&lt;/b&gt; the property &lt;b&gt;&quot;spark.serializer&quot;&lt;/b&gt; to &lt;b&gt;&quot;org.apache.spark.serializer.KryoSerializer&quot;&lt;/b&gt;.
+This will be used both during &lt;b&gt;shuffles&lt;/b&gt; between worker nodes and during serialization &lt;b&gt;to disk&lt;/b&gt;.
+&lt;/p&gt;
+
+&lt;p&gt;
+Kryo does require some more configuration and has some limitations, go check out the &lt;a href=&quot;https://spark.apache.org/docs/latest/tuning.html#data-serialization&quot;&gt;spark documentation&lt;/a&gt; to know what you need to exactly do. Actually read that whole part of the doc right now!
+&lt;/p&gt;
+
+&lt;h3&gt;4. DON&#39;T use different modes/schedulers/data for testing and prod!&lt;/h3&gt;
+&lt;p&gt;The thought of using standalone scheduler+client mode for tests and YARN/Mesos+cluster mode in prod sounds very tempting.
+Same goes for testing your Spark apps on smaller datasets than the ones in production. Do not give into that temptation as a false one, it is :-)
+There are scheduler specific bugs like &lt;a href=&quot;https://issues.apache.org/jira/browse/SPARK-12494&quot;&gt;this one&lt;/a&gt; I encountered. Everything worked fine in local mode on a small dataset. A big dataset+Yarn = disaster. 
+
+&lt;h3&gt;5. DO cache/persist&lt;/h3&gt;
+&lt;p&gt;
+Consider this piece of code:
+&lt;/p&gt;
+&lt;pre class=&quot;brush: scala&quot;&gt;
+import org.apache.spark.mllib.clustering.{KMeans, KMeansModel}
+import org.apache.spark.mllib.linalg.Vectors
+
+// Declare and initialise the spark context
+
+// Load a HUGE dataset
+val data = sc.textFile(&quot;kmeans_data.txt&quot;)
+val parsedData = data.map(s =&gt; Vectors.dense(s.split(&#39; &#39;).map(_.toDouble)))
+
+val clusters = KMeans.train(parsedData, 4, 500)
+&lt;/pre&gt;
+
+&lt;p&gt;All fine and dandy, right? Wrong! It&#39;s extremely important to read the docs of every method you use to see if it uses your RDD more than once! In the above case &lt;b&gt;parsedData&lt;/b&gt; will be re-read from the file and the whole RDD will be recreated hundreds of time inside the &lt;b&gt;KMeans.train&lt;/b&gt; method!&lt;/p&gt;
+&lt;p&gt;While writing your algorithms and using third party libraries remember about &lt;a href=&quot;https://spark.apache.org/docs/latest/api/java/org/apache/spark/rdd/RDD.html#persist(org.apache.spark.storage.StorageLevel)&quot;&gt;persist(level)&lt;/a&gt; and the shorthand version &lt;a href=&quot;https://spark.apache.org/docs/latest/api/java/org/apache/spark/rdd/RDD.html#cache()&quot;&gt;cache()&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;The above methods store computed RDD either &lt;b&gt;in memory&lt;/b&gt; (faster access) or &lt;b&gt;in memory and on disk&lt;/b&gt; (more space but slower) in a &lt;b&gt;serialized&lt;/b&gt; (less storage, more CPU intensive) or &lt;b&gt;non serialized&lt;/b&gt; format so Spark will not recreate it every time the RDD is used. My advice is to, if possible, use the memory only storage level, you really don&#39;t want to hit the disk although that&#39;s not always an option.&lt;/p&gt;
+
+&lt;p&gt;The above example can be quickly fixed by adding one line (or calling the method during the assignment) of code before the KMeans call:&lt;/p&gt;
+&lt;pre class=&quot;brush: scala&quot;&gt;
+val parsedData = data.map(s =&gt; Vectors.dense(s.split(&#39; &#39;).map(_.toDouble)))
+parsedData.cache()
+&lt;/pre&gt;
+
+&lt;h3&gt;6. BONUS1: AWS EMR mode....&lt;/h3&gt;
+&lt;p&gt;It seems that AWS EMR only supports natively YARN scheduling and there&#39;s no (easy) way to use the spark standalone mode so if you, for some reason, need to use it better go with &lt;a hreaf=&quot;http://spark.apache.org/docs/latest/ec2-scripts.html&quot;&gt;spark ec2 scripts&lt;/a&gt; and save yourselve a lot of trouble.
+
+&lt;h3&gt;7. BONUS2: ES HADOOP&lt;/h3&gt;
+&lt;p&gt;
+&lt;a hreaf=&quot;https://github.com/elastic/elasticsearch-hadoop&quot;&gt;Elasticsearch Hadoop&lt;/a&gt; is a very cool library which will allow you to read data from &lt;a hreaf=&quot;https://www.elastic.co/&quot;&gt;Elasticsearch&lt;/a&gt; as a DataFrame or an RDD.
+Two pieces of advice here:
+&lt;ol&gt;
+&lt;li&gt;Remember that each field in ES is by default an array, even without any additional config? Well yes, it can be a singular value or an array straight out of the box! If you have arrays in your documents better use &lt;b&gt;es.read.field.as.array.include&lt;/b&gt; option which is fully described in the &lt;a hreaf=&quot;https://www.elastic.co/guide/en/elasticsearch/hadoop/master/configuration.html&quot;&gt;documentation.&lt;/a&gt; since ES-Hadoop might have a hard time figuring this out.&lt;/li&gt;
+&lt;li&gt;Even though all the issues regarding &lt;b&gt;Position for &#39;FIELDNAME&#39; not found in row; typically this is caused by a mapping inconsistency&lt;/b&gt; regarding nested fields I have found in the tracker seem to be resolved I still had some problems when using DataFrames. If you encounter them consider using &lt;b&gt;EsSpark.esRDD&lt;/b&gt; and going with an RDD instead...&lt;/li&gt;
+&lt;/ol&gt;
+&lt;/p&gt;
+
+&lt;p&gt;
+That&#39;s it for now, not much but hope it will make people&#39;s life easier! Now is the time to make the whole thing actually fast so be on a look out for performance tuning tips!
+&lt;/p&gt;</description>
+        <pubDate>Fri, 26 Feb 2016 00:00:00 +0900</pubDate>
+        <link>http://www.puroguramingu.com/2016/02/26/spark-dos-donts.html</link>
+        <guid isPermaLink="true">http://www.puroguramingu.com/2016/02/26/spark-dos-donts.html</guid>
+        
+        
+      </item>
     
       <item>
         <title>On the state of IT recruitment...</title>
