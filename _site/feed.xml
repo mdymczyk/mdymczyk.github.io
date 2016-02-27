@@ -6,9 +6,104 @@
 </description>
     <link>http://www.puroguramingu.com/</link>
     <atom:link href="http://www.puroguramingu.com/feed.xml" rel="self" type="application/rss+xml" />
-    <pubDate>Fri, 26 Feb 2016 20:53:41 +0900</pubDate>
-    <lastBuildDate>Fri, 26 Feb 2016 20:53:41 +0900</lastBuildDate>
+    <pubDate>Sat, 27 Feb 2016 12:34:04 +0900</pubDate>
+    <lastBuildDate>Sat, 27 Feb 2016 12:34:04 +0900</lastBuildDate>
     <generator>Jekyll v2.5.3</generator>
+    
+      <item>
+        <title>Embedded Elasticsearch 2.2 vs Groovy</title>
+        <description>&lt;p&gt;
+A few weeks ago &lt;a href=&quot;https://www.elastic.co/blog/elasticsearch-2-2-0-and-2-1-2-and-1-7-5-released&quot;&gt;Elasticsearch 2.2.0&lt;/a&gt; was released.
+This is a pretty important release if you are using, either for production or only for testing like me, the embedded version of ES, create it with &lt;a href=&quot;http://javadoc.kyubu.de/elasticsearch/v2.2.0/org/elasticsearch/node/NodeBuilder.html&quot;&gt;NodeBuilder&lt;/a&gt; and you&#39;re also using ES plugins.
+As we know plugins were, up until now, simply auto detected if found on the classpath but this has changed in &lt;a href=&quot;https://github.com/elastic/elasticsearch/pull/13055&quot;&gt;2.1&lt;/a&gt;. This change will also affect you now 
+if you are using Groovy scripts somewhere in your Elasticsearch as &lt;a href=&quot;https://github.com/elastic/elasticsearch/pull/13834&quot;&gt;per this ticket&lt;/a&gt; groovy plugin has been taken out of core and moved into a separate module and might surprise you with a &lt;b&gt;script_lang not supported [groovy]&lt;/b&gt; even though you haven&#39;t done anything (except for upgrading the ES version).
+This is not a problem when using standalone ES as the jar is in the &lt;b&gt;module&lt;/b&gt; directory by default but with embedded ES we don&#39;t have it. Simply putting &lt;b&gt;org.elasticsearch.module:lang-groovy&lt;/b&gt; on the CP won&#39;t work, so what do we do?
+There are (at least) 3 options.
+&lt;/p&gt;
+
+&lt;h3&gt;1. Be proper.&lt;/h3&gt;
+
+&lt;p&gt;
+Stop using in-memory ES, install it as &lt;a href=&quot;https://www.elastic.co/guide/en/elasticsearch/reference/current/_installation.html&quot;&gt;you&#39;d normally do&lt;/a&gt; and use it instead. As I mentioned you do not need to &lt;a href=&quot;https://www.elastic.co/guide/en/elasticsearch/plugins/2.2/installation.html&quot;&gt;install&lt;/a/&gt; the groovy plugin as
+it comes bundled with the distribution in the &lt;b&gt;modules&lt;/b&gt; folder and ES automatically detects it. This is obviously a bit annoying approach especially for unit/integration tests so...
+&lt;/p&gt;
+
+&lt;h3&gt;2. Be semi-proper.&lt;/h3&gt;
+
+&lt;p&gt;
+When you are creating and starting a node with node builder you can specify the home directory. 
+In case you&#39;re using ES for testing you can make it a temporary folder. 
+With this you can download your plugin (jar, plugin descriptor etc. have a look at the module directory for clues) of choice, put it in your test resource directory and simply copy it to your ES home directory&#39;s &lt;b&gt;modules&lt;/b&gt; folder. Then when the node starts up ES will automatically detect the plugin. It would go something like this:
+&lt;/p&gt;
+
+&lt;pre class=&quot;brush: scala&quot;&gt;
+import org.apache.commons.io.FileUtils
+
+private val tempFile = File.createTempFile(&quot;elasticsearchtests&quot;, &quot;tmp&quot;)
+private val homeDir = new File(tempFile.getParent + &quot;/&quot; + UUID.randomUUID().toString)
+
+homeDir.mkdir()
+homeDir.deleteOnExit()
+tempFile.deleteOnExit()
+
+FileUtils.copyURLToFile(
+  getClass.getResource(&quot;/lang-groovy&quot;),
+  new File(homeDir.getAbsolutePath + &quot;/modules/lang-groovy&quot;)
+)
+
+private val settings = Settings.settingsBuilder()
+	.put(&quot;path.home&quot;, homeDir.getAbsolutePath)
+	// other settings
+	.build()
+
+val node = NodeBuilder.nodeBuilder().settings(settings).node()
+&lt;/pre&gt;
+
+&lt;p&gt;This should work as ES does automatically check the &lt;b&gt;modules&lt;/b&gt; directory for plugins. 
+The problem is that you need to manually manage the plugin files (put them in test/resource and update them every time you want to change versions) so this leaves us with the third option...
+
+&lt;h3&gt;3. Be a rebel.&lt;/h3&gt;
+
+&lt;p&gt;
+The &lt;a href=&quot;https://www.elastic.co/guide/en/elasticsearch/client/java-api/current/transport-client.html&quot;&gt;TransportClient&lt;/a&gt; still has the ability to find plugins on the classpath which means there&#39;s probably a way we could abuse it!
+And indeed there is one - the &lt;a href=&quot;http://javadoc.kyubu.de/elasticsearch/v2.2.0/org/elasticsearch/node/Node.html&quot;&gt;Node&lt;/a&gt; class has a protected constructor which still accepts classpath plugins! This means we can skip the NodeBuilder and make our own little Node:
+&lt;/p&gt;
+&lt;pre class=&quot;brush: scala&quot;&gt;
+class ClasspathESNode(
+  settings: Environment,
+  version: Version,
+  classpathPlugins: util.Collection[Class[_ &lt;: Plugin]])
+  extends Node(settings, version, classpathPlugins) {}
+
+private val settings = Settings.settingsBuilder()
+	// settings
+	.build()
+
+val node = new ClasspathESNode(
+    InternalSettingsPreparer.prepareEnvironment(settings, null), 
+    Version.CURRENT, 
+    Collections.singletonList[Class[_ &lt;: Plugin]](classOf[GroovyPlugin])
+  ).start()
+&lt;/pre&gt;
+
+&lt;p&gt;You probably can extend the NodeBuilder to return the above so you get the whole fluent API goodness, personally I don&#39;t need it for now.&lt;/p&gt;
+
+&lt;p&gt;Just to make it clear, ES guys had pretty good reasons to do what they did (java security and jar hell), if you can you should go with the proper way of handling plugins! I do not advice using methods 2 and 3 in any other scenario than testing. Also should you use the above workarounds it&#39;s on your own accord and please don&#39;t complain should anything bad happen :-)&lt;/p&gt;
+
+
+</description>
+        <pubDate>Sun, 28 Feb 2016 00:00:00 +0900</pubDate>
+        <link>http://www.puroguramingu.com/2016/02/28/elasticsearch-2.2.html</link>
+        <guid isPermaLink="true">http://www.puroguramingu.com/2016/02/28/elasticsearch-2.2.html</guid>
+        
+        <category>elasticsearch</category>
+        
+        <category>elastic</category>
+        
+        <category>groovy</category>
+        
+        
+      </item>
     
       <item>
         <title>Spark DOs, DONTs</title>

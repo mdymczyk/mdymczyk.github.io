@@ -1,0 +1,89 @@
+---
+layout: post
+title: Embedded Elasticsearch 2.2 vs Groovy
+tags:
+- elasticsearch
+- elastic
+- groovy
+author: Mateusz
+---
+
+<p>
+A few weeks ago <a href="https://www.elastic.co/blog/elasticsearch-2-2-0-and-2-1-2-and-1-7-5-released">Elasticsearch 2.2.0</a> was released.
+This is a pretty important release if you are using, either for production or only for testing like me, the embedded version of ES, create it with <a href="http://javadoc.kyubu.de/elasticsearch/v2.2.0/org/elasticsearch/node/NodeBuilder.html">NodeBuilder</a> and you're also using ES plugins.
+As we know plugins were, up until now, simply auto detected if found on the classpath but this has changed in <a href="https://github.com/elastic/elasticsearch/pull/13055">2.1</a>. This change will also affect you now 
+if you are using Groovy scripts somewhere in your Elasticsearch as <a href="https://github.com/elastic/elasticsearch/pull/13834">per this ticket</a> groovy plugin has been taken out of core and moved into a separate module and might surprise you with a <b>script_lang not supported [groovy]</b> even though you haven't done anything (except for upgrading the ES version).
+This is not a problem when using standalone ES as the jar is in the <b>module</b> directory by default but with embedded ES we don't have it. Simply putting <b>org.elasticsearch.module:lang-groovy</b> on the CP won't work, so what do we do?
+There are (at least) 3 options.
+</p>
+
+<h3>1. Be proper.</h3>
+
+<p>
+Stop using in-memory ES, install it as <a href="https://www.elastic.co/guide/en/elasticsearch/reference/current/_installation.html">you'd normally do</a> and use it instead. As I mentioned you do not need to <a href="https://www.elastic.co/guide/en/elasticsearch/plugins/2.2/installation.html">install</a/> the groovy plugin as
+it comes bundled with the distribution in the <b>modules</b> folder and ES automatically detects it. This is obviously a bit annoying approach especially for unit/integration tests so...
+</p>
+
+<h3>2. Be semi-proper.</h3>
+
+<p>
+When you are creating and starting a node with node builder you can specify the home directory. 
+In case you're using ES for testing you can make it a temporary folder. 
+With this you can download your plugin (jar, plugin descriptor etc. have a look at the module directory for clues) of choice, put it in your test resource directory and simply copy it to your ES home directory's <b>modules</b> folder. Then when the node starts up ES will automatically detect the plugin. It would go something like this:
+</p>
+
+<pre class="brush: scala">
+import org.apache.commons.io.FileUtils
+
+private val tempFile = File.createTempFile("elasticsearchtests", "tmp")
+private val homeDir = new File(tempFile.getParent + "/" + UUID.randomUUID().toString)
+
+homeDir.mkdir()
+homeDir.deleteOnExit()
+tempFile.deleteOnExit()
+
+FileUtils.copyURLToFile(
+  getClass.getResource("/lang-groovy"),
+  new File(homeDir.getAbsolutePath + "/modules/lang-groovy")
+)
+
+private val settings = Settings.settingsBuilder()
+	.put("path.home", homeDir.getAbsolutePath)
+	// other settings
+	.build()
+
+val node = NodeBuilder.nodeBuilder().settings(settings).node()
+</pre>
+
+<p>This should work as ES does automatically check the <b>modules</b> directory for plugins. 
+The problem is that you need to manually manage the plugin files (put them in test/resource and update them every time you want to change versions) so this leaves us with the third option...
+
+<h3>3. Be a rebel.</h3>
+
+<p>
+The <a href="https://www.elastic.co/guide/en/elasticsearch/client/java-api/current/transport-client.html">TransportClient</a> still has the ability to find plugins on the classpath which means there's probably a way we could abuse it!
+And indeed there is one - the <a href="http://javadoc.kyubu.de/elasticsearch/v2.2.0/org/elasticsearch/node/Node.html">Node</a> class has a protected constructor which still accepts classpath plugins! This means we can skip the NodeBuilder and make our own little Node:
+</p>
+<pre class="brush: scala">
+class ClasspathESNode(
+  settings: Environment,
+  version: Version,
+  classpathPlugins: util.Collection[Class[_ <: Plugin]])
+  extends Node(settings, version, classpathPlugins) {}
+
+private val settings = Settings.settingsBuilder()
+	// settings
+	.build()
+
+val node = new ClasspathESNode(
+    InternalSettingsPreparer.prepareEnvironment(settings, null), 
+    Version.CURRENT, 
+    Collections.singletonList[Class[_ <: Plugin]](classOf[GroovyPlugin])
+  ).start()
+</pre>
+
+<p>You probably can extend the NodeBuilder to return the above so you get the whole fluent API goodness, personally I don't need it for now.</p>
+
+<p>Just to make it clear, ES guys had pretty good reasons to do what they did (java security and jar hell), if you can you should go with the proper way of handling plugins! I do not advice using methods 2 and 3 in any other scenario than testing. Also should you use the above workarounds it's on your own accord and please don't complain should anything bad happen :-)</p>
+
+
